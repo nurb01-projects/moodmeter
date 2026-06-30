@@ -15,6 +15,7 @@ import {
   Clock,
   ArrowRightLeft
 } from 'lucide-react';
+import { supabase } from './lib/supabaseClient';
 
 // Полный словарь из 100 эмоций с определениями и советами на трех языках
 const emotionsData = [
@@ -777,24 +778,83 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   const [contrastMode, setContrastMode] = useState('auto'); // 'auto' (черно-белый по яркости) или 'white' (чисто белый)
 
-  // Загрузка логов из localStorage при запуске
+  // --- Аутентификация ---
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+
+  // 1. Проверка сессии при монтировании + подписка на изменения авторизации
   useEffect(() => {
-    const savedLogs = localStorage.getItem('mood_meter_logs');
-    if (savedLogs) {
-      try {
-        setLogs(JSON.parse(savedLogs));
-      } catch (e) {
-        console.error("Error loading logs", e);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+      if (session?.user) fetchLogs();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchLogs();
+      } else {
+        setLogs([]);
       }
-    }
+    });
+
     // Автовыбор первой эмоции (Enraged) по умолчанию
     setSelected(emotionsData[0]);
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Сохранение логов
-  const saveLogsToStorage = (newLogs: LogEntry[]) => {
-    setLogs(newLogs);
-    localStorage.setItem('mood_meter_logs', JSON.stringify(newLogs));
+  // 2. Аутентификация (вход / регистрация)
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSignUp) {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) alert(error.message);
+      else alert(
+        lang === 'ru'
+          ? 'Проверьте почту для подтверждения регистрации!'
+          : lang === 'kk'
+            ? 'Тіркеуді растау үшін поштаңызды тексеріңіз!'
+            : 'Check your email to confirm your registration!'
+      );
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert(error.message);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setLogs([]);
+  };
+
+  // 3. Загрузка логов из Supabase
+  const fetchLogs = async () => {
+    const { data, error } = await supabase
+      .from('mood_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      const formattedLogs: LogEntry[] = data.map((log: any) => ({
+        id: log.id,
+        emotionKey: log.emotion_key,
+        x: log.x,
+        y: log.y,
+        color: log.color,
+        note: log.note,
+        timestamp: new Date(log.created_at).toLocaleString(
+          lang === 'en' ? 'en-US' : lang === 'ru' ? 'ru-RU' : 'kk-KZ'
+        )
+      }));
+      setLogs(formattedLogs);
+    } else if (error) {
+      console.error('Error fetching logs', error);
+    }
   };
 
 // Поиск и фильтрация эмоций
@@ -943,29 +1003,42 @@ const filteredEmotions = useMemo(() => {
     }
   };
 
-  const handleLogMood = () => {
-    if (!selected) return;
+  // 4. Сохранение новой записи в Supabase
+  const handleLogMood = async () => {
+    if (!selected || !user) return;
     const computedBg = getCellColor(selected.x, selected.y);
-    const newLog = {
-      id: Date.now(),
-      timestamp: new Date().toLocaleString(lang === 'en' ? 'en-US' : lang === 'ru' ? 'ru-RU' : 'kk-KZ'),
-      emotionKey: selected.en.name,
-      note: journalNote.trim(),
-      x: selected.x,
-      y: selected.y,
-      color: computedBg
-    };
-    const updated = [newLog, ...logs];
-    saveLogsToStorage(updated);
-    setJournalNote('');
+
+    const { error } = await supabase.from('mood_logs').insert([
+      {
+        emotion_key: selected.en.name,
+        x: selected.x,
+        y: selected.y,
+        color: computedBg,
+        note: journalNote.trim()
+      }
+    ]);
+
+    if (!error) {
+      await fetchLogs();
+      setJournalNote('');
+    } else {
+      console.error('Error saving log', error);
+      alert(error.message);
+    }
   };
 
-  const handleDeleteLog = (id: number) => {
-    const updated = logs.filter(log => log.id !== id);
-    saveLogsToStorage(updated);
+  // 5. Удаление записи из Supabase
+  const handleDeleteLog = async (id: number) => {
+    const { error } = await supabase.from('mood_logs').delete().eq('id', id);
+    if (!error) {
+      setLogs(logs.filter(log => log.id !== id));
+    } else {
+      console.error('Error deleting log', error);
+    }
   };
 
-  const handleClearLogs = () => {
+  // 6. Очистка всей истории в Supabase
+  const handleClearLogs = async () => {
     const confirmed = window.confirm(
       lang === 'ru' 
         ? 'Вы уверены, что хотите очистить всю историю?' 
@@ -973,8 +1046,14 @@ const filteredEmotions = useMemo(() => {
           ? 'Барлық тарихты өшіргіңіз келетініне сенімдісіз бе?' 
           : 'Are you sure you want to clear all history?'
     );
-    if (confirmed) {
-      saveLogsToStorage([]);
+    if (!confirmed || !user) return;
+
+    const { error } = await supabase.from('mood_logs').delete().eq('user_id', user.id);
+    if (!error) {
+      setLogs([]);
+    } else {
+      console.error('Error clearing logs', error);
+      alert(error.message);
     }
   };
 
@@ -1048,13 +1127,78 @@ const filteredEmotions = useMemo(() => {
                 </button>
               ))}
             </div>
+
+            {/* Пользователь / Выход */}
+            {user && (
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs font-semibold text-slate-600 transition-all duration-200"
+                title={user.email}
+              >
+                {lang === 'ru' ? 'Выйти' : lang === 'kk' ? 'Шығу' : 'Sign out'}
+              </button>
+            )}
           </div>
 
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        
+
+        {/* Экран загрузки сессии */}
+        {authLoading && (
+          <div className="flex justify-center items-center py-24 text-slate-400 text-sm font-semibold">
+            {lang === 'ru' ? 'Загрузка...' : lang === 'kk' ? 'Жүктелуде...' : 'Loading...'}
+          </div>
+        )}
+
+        {/* Форма входа / регистрации, если пользователь не авторизован */}
+        {!authLoading && !user && (
+          <div className="max-w-sm mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mt-12 space-y-4">
+            <h2 className="text-lg font-extrabold text-slate-950 text-center">
+              {isSignUp
+                ? (lang === 'ru' ? 'Регистрация' : lang === 'kk' ? 'Тіркелу' : 'Sign Up')
+                : (lang === 'ru' ? 'Вход' : lang === 'kk' ? 'Кіру' : 'Sign In')}
+            </h2>
+            <form onSubmit={handleAuth} className="space-y-3">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={lang === 'ru' ? 'Пароль' : lang === 'kk' ? 'Құпиясөз' : 'Password'}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                type="submit"
+                className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors"
+              >
+                {isSignUp
+                  ? (lang === 'ru' ? 'Зарегистрироваться' : lang === 'kk' ? 'Тіркелу' : 'Sign Up')
+                  : (lang === 'ru' ? 'Войти' : lang === 'kk' ? 'Кіру' : 'Sign In')}
+              </button>
+            </form>
+            <button
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="w-full text-center text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+            >
+              {isSignUp
+                ? (lang === 'ru' ? 'Уже есть аккаунт? Войти' : lang === 'kk' ? 'Аккаунтыңыз бар ма? Кіру' : 'Already have an account? Sign in')
+                : (lang === 'ru' ? 'Нет аккаунта? Зарегистрироваться' : lang === 'kk' ? 'Аккаунтыңыз жоқ па? Тіркелу' : "Don't have an account? Sign up")}
+            </button>
+          </div>
+        )}
+
+        {!authLoading && user && (
+        <>
         {/* Описание Йельской модели (сворачиваемое) */}
         {showAbout && (
           <div className="mb-6 bg-indigo-50/80 border border-indigo-100 rounded-2xl p-5 relative overflow-hidden transition-all duration-300 shadow-sm animate-fadeIn">
@@ -1473,6 +1617,8 @@ const filteredEmotions = useMemo(() => {
           </div>
 
         </div>
+        </>
+        )}
 
       </main>
 
