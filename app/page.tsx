@@ -793,8 +793,16 @@ export default function App() {
       if (session?.user) fetchLogs();
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth event:', event, session); // Для отладки в консоли
       setUser(session?.user ?? null);
+      setAuthLoading(false);
+
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        // Очищаем хэш в адресной строке после разбора токена из письма
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
       if (session?.user) {
         fetchLogs();
       } else {
@@ -812,7 +820,13 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSignUp) {
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
       if (error) alert(error.message);
       else alert(
         lang === 'ru'
@@ -1147,8 +1161,8 @@ const filteredEmotions = useMemo(() => {
 
         {/* Экран загрузки сессии */}
         {authLoading && (
-          <div className="flex justify-center items-center py-24 text-slate-400 text-sm font-semibold">
-            {lang === 'ru' ? 'Загрузка...' : lang === 'kk' ? 'Жүктелуде...' : 'Loading...'}
+          <div className="flex justify-center items-center py-24">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
           </div>
         )}
 
