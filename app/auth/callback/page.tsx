@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../../lib/supabaseClient';; // Проверь, что путь совпадает с твоим реальным расположением клиента
+import { supabase } from '@/app/lib/supabaseClient';; // Проверь, что путь совпадает с твоим реальным расположением клиента
 
 export default function AuthCallbackPage() {
   const router = useRouter();
