@@ -777,7 +777,7 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showAbout, setShowAbout] = useState(false);
   const [contrastMode, setContrastMode] = useState('auto'); // 'auto' (черно-белый по яркости) или 'white' (чисто белый)
-  const [loading, setLoading] = useState(true);
+
   // --- Аутентификация ---
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -786,25 +786,35 @@ export default function App() {
   const [isSignUp, setIsSignUp] = useState(false);
 
   // 1. Проверка сессии при монтировании + подписка на изменения авторизации
-useEffect(() => {
-  // 1. Проверяем текущую сессию
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setUser(session?.user ?? null);
-    setLoading(false);
-  });
-
-  // 2. Слушаем события авторизации (включая переход по ссылке из почты)
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      setLoading(false);
-      // Очищаем адресную строку от длинного access_token
-      window.history.replaceState(null, '', window.location.pathname);
-    }
-  });
+      setAuthLoading(false);
+      if (session?.user) fetchLogs();
+    });
 
-  return () => subscription.unsubscribe();
-}, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth event:', event, session); // Для отладки в консоли
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        // Очищаем хэш в адресной строке после разбора токена из письма
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+
+      if (session?.user) {
+        fetchLogs();
+      } else {
+        setLogs([]);
+      }
+    });
+
+    // Автовыбор первой эмоции (Enraged) по умолчанию
+    setSelected(emotionsData[0]);
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // 2. Аутентификация (вход / регистрация)
   const handleAuth = async (e: React.FormEvent) => {
