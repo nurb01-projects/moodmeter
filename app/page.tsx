@@ -1115,6 +1115,9 @@ const filteredEmotions = useMemo(() => {
             </div>
           </div>
 
+
+
+
           <div className="flex items-center gap-3 flex-wrap">
             {/* Кнопка "О шкале" */}
             <button 
@@ -1141,6 +1144,24 @@ const filteredEmotions = useMemo(() => {
                 </button>
               ))}
             </div>
+            {/* НОВЫЙ БЛОК: Почта пользователя и кнопка выхода */}
+              {user && (
+                <div className="flex items-center gap-3 border-l border-slate-200 pl-3 ml-1">
+                  <span className="text-xs font-medium text-slate-500 hidden sm:inline-block">
+                    {user.email}
+                  </span>
+                  <button 
+                    onClick={() => supabase.auth.signOut()} 
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs font-semibold text-slate-600 transition-all duration-200"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="hidden sm:inline">Выйти</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+
 
             {/* Пользователь / Выход */}
             {user && (
