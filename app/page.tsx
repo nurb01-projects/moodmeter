@@ -777,7 +777,7 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showAbout, setShowAbout] = useState(false);
   const [contrastMode, setContrastMode] = useState('auto'); // 'auto' (черно-белый по яркости) или 'white' (чисто белый)
-
+  const [loading, setLoading] = useState(true);
   // --- Аутентификация ---
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
